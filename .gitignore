@@ -1,0 +1,396 @@
+# =================================
+# DEPENDENCIES
+# =================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# =================================
+# ENVIRONMENT VARIABLES
+# =================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.staging
+
+# =================================
+# LOGS
+# =================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# =================================
+# RUNTIME DATA
+# =================================
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# =================================
+# COVERAGE DIRECTORY
+# =================================
+lib-cov
+coverage/
+*.lcov
+.nyc_output
+.coverage/
+.coverage-final.json
+
+# =================================
+# INSTRUMENTED LIBS
+# =================================
+lib-cov
+
+# =================================
+# GRUNT INTERMEDIATE STORAGE
+# =================================
+.grunt
+
+# =================================
+# BOWER DEPENDENCY DIRECTORY
+# =================================
+bower_components
+
+# =================================
+# NODE-WAF CONFIGURATION
+# =================================
+.lock-wscript
+
+# =================================
+# COMPILED BINARY ADDONS
+# =================================
+build/Release
+
+# =================================
+# DEPENDENCY DIRECTORIES
+# =================================
+node_modules/
+jspm_packages/
+
+# =================================
+# TYPESCRIPT CACHE
+# =================================
+*.tsbuildinfo
+
+# =================================
+# OPTIONAL NPM CACHE DIRECTORY
+# =================================
+.npm
+
+# =================================
+# OPTIONAL ESLINT CACHE
+# =================================
+.eslintcache
+
+# =================================
+# MICROBUNDLE CACHE
+# =================================
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# =================================
+# OPTIONAL REPL HISTORY
+# =================================
+.node_repl_history
+
+# =================================
+# OUTPUT OF 'NPM PACK'
+# =================================
+*.tgz
+
+# =================================
+# YARN INTEGRITY FILE
+# =================================
+.yarn-integrity
+
+# =================================
+# PARCEL-BUNDLER CACHE
+# =================================
+.cache
+.parcel-cache
+
+# =================================
+# NEXT.JS BUILD OUTPUT
+# =================================
+.next
+out
+
+# =================================
+# NUXT.JS BUILD / GENERATE OUTPUT
+# =================================
+.nuxt
+dist
+
+# =================================
+# GATSBY FILES
+# =================================
+.cache/
+public
+
+# =================================
+# VUEPRESS BUILD OUTPUT
+# =================================
+.vuepress/dist
+
+# =================================
+# SERVERLESS DIRECTORIES
+# =================================
+.serverless/
+
+# =================================
+# FUSEBOX CACHE
+# =================================
+.fusebox/
+
+# =================================
+# DYNAMODB LOCAL FILES
+# =================================
+.dynamodb/
+
+# =================================
+# TERNJS PORT FILE
+# =================================
+.tern-port
+
+# =================================
+# STORES VSCode VERSIONS
+# =================================
+.vscode-test
+
+# =================================
+# YARN V2
+# =================================
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# =================================
+# UPLOADS & TEMPORARY FILES
+# =================================
+uploads/
+temp/
+tmp/
+*.tmp
+*.temp
+
+# =================================
+# DATABASE FILES
+# =================================
+*.db
+*.sqlite
+*.sqlite3
+
+# =================================
+# BACKUP FILES
+# =================================
+backups/
+*.backup
+*.bak
+
+# =================================
+# DOCKER
+# =================================
+.dockerignore
+docker-compose.override.yml
+
+# =================================
+# KUBERNETES
+# =================================
+*.yaml.local
+*.yml.local
+
+# =================================
+# TERRAFORM
+# =================================
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# =================================
+# AWS
+# =================================
+.aws/
+
+# =================================
+# GOOGLE CLOUD
+# =================================
+.gcloud/
+service-account-key.json
+
+# =================================
+# AZURE
+# =================================
+.azure/
+
+# =================================
+# SSL CERTIFICATES
+# =================================
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+
+# =================================
+# MACOS
+# =================================
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# =================================
+# WINDOWS
+# =================================
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# =================================
+# LINUX
+# =================================
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# =================================
+# EDITORS
+# =================================
+# VSCode
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Sublime Text
+*.tmlanguage.cache
+*.tmPreferences.cache
+*.stTheme.cache
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+Session.vim
+Sessionx.vim
+.netrwhist
+*~
+tags
+[._]*.un~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# JetBrains IDEs
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+.idea_modules/
+
+# =================================
+# TESTING
+# =================================
+test-results/
+coverage/
+.nyc_output/
+junit.xml
+
+# =================================
+# MONITORING & ANALYTICS
+# =================================
+newrelic_agent.log
+.newrelic/
+
+# =================================
+# CACHE DIRECTORIES
+# =================================
+.cache/
+.tmp/
+.sass-cache/
+.connect.lock
+.grunt/
+
+# =================================
+# BUILD OUTPUTS
+# =================================
+build/
+dist/
+out/
+target/
+
+# =================================
+# PACKAGE MANAGERS
+# =================================
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# =================================
+# CUSTOM IGNORES
+# =================================
+# Add your custom ignores here
+*.local
+*.private
+*.secret
+config/local.js
+config/production.js

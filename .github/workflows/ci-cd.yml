@@ -1,0 +1,423 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+
+env:
+  NODE_VERSION: '18.x'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # =================================
+  # CODE QUALITY & TESTING
+  # =================================
+  test:
+    name: Test & Quality Checks
+    runs-on: ubuntu-latest
+    
+    services:
+      mongodb:
+        image: mongo:7.0
+        env:
+          MONGO_INITDB_ROOT_USERNAME: admin
+          MONGO_INITDB_ROOT_PASSWORD: password123
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval 'db.adminCommand(\"ping\")'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7.2-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Create test environment file
+        run: |
+          cat > .env << EOF
+          NODE_ENV=test
+          PORT=3001
+          MONGODB_URI=mongodb://admin:password123@localhost:27017/test_db?authSource=admin
+          REDIS_URL=redis://localhost:6379
+          JWT_SECRET=test-jwt-secret-that-is-at-least-32-characters-long-for-security
+          JWT_REFRESH_SECRET=test-jwt-refresh-secret-that-is-at-least-32-characters-long-for-security
+          EMAIL_SMTP_HOST=smtp.mailtrap.io
+          EMAIL_SMTP_PORT=2525
+          EMAIL_SMTP_USER=test
+          EMAIL_SMTP_PASS=test
+          EOF
+
+      - name: Run linting
+        run: npm run lint
+
+      - name: Check code formatting
+        run: npm run format:check
+
+      - name: Run tests
+        run: npm run test:ci
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info
+          flags: unittests
+          name: codecov-umbrella
+
+      - name: Run security audit
+        run: npm audit --audit-level moderate
+
+      - name: Check for outdated dependencies
+        run: npm outdated || true
+
+  # =================================
+  # BUILD & SECURITY SCAN
+  # =================================
+  build:
+    name: Build & Security Scan
+    runs-on: ubuntu-latest
+    needs: test
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: npm run build
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:test
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  # =================================
+  # DEPLOY TO STAGING
+  # =================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to staging server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            cd /opt/app
+            docker-compose -f docker-compose.staging.yml pull
+            docker-compose -f docker-compose.staging.yml up -d
+            docker system prune -f
+
+      - name: Run health check
+        run: |
+          sleep 30
+          curl -f ${{ secrets.STAGING_URL }}/api/health || exit 1
+
+      - name: Notify Slack on success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: '🚀 Staging deployment successful!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: '❌ Staging deployment failed!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # =================================
+  # DEPLOY TO PRODUCTION
+  # =================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    if: github.ref == 'refs/heads/main' || github.event_name == 'release'
+    environment: production
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USER }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          script: |
+            cd /opt/app
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d
+            docker system prune -f
+
+      - name: Run health check
+        run: |
+          sleep 60
+          curl -f ${{ secrets.PRODUCTION_URL }}/api/health || exit 1
+
+      - name: Run smoke tests
+        run: |
+          curl -f ${{ secrets.PRODUCTION_URL }}/api/info || exit 1
+          curl -f ${{ secrets.PRODUCTION_URL }}/ || exit 1
+
+      - name: Notify Slack on success
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: '🎉 Production deployment successful!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: '🚨 Production deployment failed!'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # =================================
+  # PERFORMANCE TESTING
+  # =================================
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install Artillery
+        run: npm install -g artillery@latest
+
+      - name: Run performance tests
+        run: |
+          cat > performance-test.yml << EOF
+          config:
+            target: '${{ secrets.STAGING_URL }}'
+            phases:
+              - duration: 60
+                arrivalRate: 10
+              - duration: 120
+                arrivalRate: 20
+              - duration: 60
+                arrivalRate: 10
+          scenarios:
+            - name: "Health check"
+              requests:
+                - get:
+                    url: "/api/health"
+            - name: "API info"
+              requests:
+                - get:
+                    url: "/api/info"
+          EOF
+          artillery run performance-test.yml
+
+  # =================================
+  # CLEANUP
+  # =================================
+  cleanup:
+    name: Cleanup
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    
+    steps:
+      - name: Delete old container images
+        uses: actions/delete-package-versions@v4
+        with:
+          package-name: ${{ env.IMAGE_NAME }}
+          package-type: 'container'
+          min-versions-to-keep: 5
+          delete-only-untagged-versions: true
+
+  # =================================
+  # DEPENDENCY UPDATE
+  # =================================
+  dependency-update:
+    name: Update Dependencies
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Update dependencies
+        run: |
+          npm update
+          npm audit fix --force
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'chore: update dependencies'
+          title: 'chore: update dependencies'
+          body: |
+            This PR updates dependencies to their latest versions.
+            
+            Please review the changes and ensure all tests pass before merging.
+          branch: dependency-updates
+          delete-branch: true
+
+# =================================
+# SCHEDULED WORKFLOWS
+# =================================
+on:
+  schedule:
+    # Run dependency updates weekly on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'

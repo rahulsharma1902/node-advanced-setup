@@ -1,0 +1,311 @@
+version: '3.8'
+
+services:
+  # =================================
+  # APPLICATION SERVICE
+  # =================================
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development
+    container_name: reusable-node-app
+    restart: unless-stopped
+    ports:
+      - '${PORT:-3000}:3000'
+    environment:
+      - NODE_ENV=development
+      - PORT=3000
+      - MONGODB_URI=mongodb://mongodb:27017/reusable_node_app
+      - REDIS_URL=redis://redis:6379
+      - QUEUE_REDIS_URL=redis://redis:6379
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - app-network
+    command: npm run dev
+
+  # =================================
+  # MONGODB DATABASE
+  # =================================
+  mongodb:
+    image: mongo:7.0
+    container_name: reusable-node-mongodb
+    restart: unless-stopped
+    ports:
+      - '27017:27017'
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password123
+      - MONGO_INITDB_DATABASE=reusable_node_app
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+      - ./scripts/mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - app-network
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =================================
+  # REDIS CACHE & QUEUE
+  # =================================
+  redis:
+    image: redis:7.2-alpine
+    container_name: reusable-node-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    command: redis-server --appendonly yes --requirepass redis123
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf
+    networks:
+      - app-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', '--raw', 'incr', 'ping']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # =================================
+  # REDIS COMMANDER (Redis GUI)
+  # =================================
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: reusable-node-redis-commander
+    restart: unless-stopped
+    ports:
+      - '8081:8081'
+    environment:
+      - REDIS_HOSTS=local:redis:6379:0:redis123
+      - HTTP_USER=admin
+      - HTTP_PASSWORD=admin123
+    depends_on:
+      - redis
+    networks:
+      - app-network
+    profiles:
+      - tools
+
+  # =================================
+  # MONGO EXPRESS (MongoDB GUI)
+  # =================================
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: reusable-node-mongo-express
+    restart: unless-stopped
+    ports:
+      - '8082:8081'
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=password123
+      - ME_CONFIG_MONGODB_URL=mongodb://admin:password123@mongodb:27017/
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin123
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+    depends_on:
+      - mongodb
+    networks:
+      - app-network
+    profiles:
+      - tools
+
+  # =================================
+  # NGINX REVERSE PROXY
+  # =================================
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: reusable-node-nginx
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - app
+    networks:
+      - app-network
+    profiles:
+      - production
+
+  # =================================
+  # ELASTICSEARCH (for logging)
+  # =================================
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.10.0
+    container_name: reusable-node-elasticsearch
+    restart: unless-stopped
+    ports:
+      - '9200:9200'
+      - '9300:9300'
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - 'ES_JAVA_OPTS=-Xms512m -Xmx512m'
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - app-network
+    profiles:
+      - logging
+
+  # =================================
+  # KIBANA (Elasticsearch GUI)
+  # =================================
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.10.0
+    container_name: reusable-node-kibana
+    restart: unless-stopped
+    ports:
+      - '5601:5601'
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - app-network
+    profiles:
+      - logging
+
+  # =================================
+  # PROMETHEUS (Metrics)
+  # =================================
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: reusable-node-prometheus
+    restart: unless-stopped
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - app-network
+    profiles:
+      - monitoring
+
+  # =================================
+  # GRAFANA (Metrics Visualization)
+  # =================================
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: reusable-node-grafana
+    restart: unless-stopped
+    ports:
+      - '3001:3000'
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+    networks:
+      - app-network
+    profiles:
+      - monitoring
+
+  # =================================
+  # MAILHOG (Email Testing)
+  # =================================
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: reusable-node-mailhog
+    restart: unless-stopped
+    ports:
+      - '1025:1025' # SMTP
+      - '8025:8025' # Web UI
+    networks:
+      - app-network
+    profiles:
+      - development
+
+  # =================================
+  # MINIO (S3 Compatible Storage)
+  # =================================
+  minio:
+    image: minio/minio:RELEASE.2023-09-30T07-02-29Z
+    container_name: reusable-node-minio
+    restart: unless-stopped
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin123
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - app-network
+    profiles:
+      - storage
+
+  # =================================
+  # ADMINER (Database Management)
+  # =================================
+  adminer:
+    image: adminer:4.8.1
+    container_name: reusable-node-adminer
+    restart: unless-stopped
+    ports:
+      - '8080:8080'
+    environment:
+      - ADMINER_DEFAULT_SERVER=mongodb
+    networks:
+      - app-network
+    profiles:
+      - tools
+
+# =================================
+# NETWORKS
+# =================================
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# =================================
+# VOLUMES
+# =================================
+volumes:
+  mongodb_data:
+    driver: local
+  mongodb_config:
+    driver: local
+  redis_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  minio_data:
+    driver: local
